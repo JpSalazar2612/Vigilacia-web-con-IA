@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreDetectionRequest;
 use App\Http\Resources\AlertResource;
+use App\Http\Resources\DetectionResource;
 use App\Repositories\DetectionRepository;
 use App\Services\DetectionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class DetectionController extends Controller
 {
@@ -16,11 +18,9 @@ class DetectionController extends Controller
         protected DetectionService $service,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(): AnonymousResourceCollection
     {
-        $page = $this->detections->paginate();
-
-        return response()->json($page);
+        return DetectionResource::collection($this->detections->paginate());
     }
 
     public function store(StoreDetectionRequest $request): JsonResponse

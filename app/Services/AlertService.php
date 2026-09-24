@@ -4,9 +4,11 @@ namespace App\Services;
 
 use App\Models\Alert;
 use App\Models\Detection;
+use App\Repositories\AlertRepository;
 
 class AlertService
 {
+    public function __construct(protected AlertRepository $alerts) {}
     public function fromDetection(Detection $detection): Alert
     {
         $level = match ($detection->event_type) {
@@ -21,7 +23,7 @@ class AlertService
             default => "Evento {$detection->event_type} - Track {$detection->track_id}",
         };
 
-        return Alert::create([
+        return $this->alerts->create([
             'camera_id' => $detection->camera_id,
             'detection_id' => $detection->id,
             'level' => $level,
@@ -33,11 +35,9 @@ class AlertService
 
     public function acknowledge(Alert $alert): Alert
     {
-        $alert->update([
+        return $this->alerts->update($alert, [
             'status' => Alert::STATUS_ACKNOWLEDGED,
             'acknowledged_at' => now(),
         ]);
-
-        return $alert->refresh();
     }
 }
