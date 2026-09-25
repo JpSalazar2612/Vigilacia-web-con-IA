@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AlertController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CameraController;
 use App\Http\Controllers\Api\V1\DetectionController;
+use App\Http\Controllers\Api\V1\EvidenciaController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -21,6 +22,7 @@ Route::prefix('v1')->group(function () {
         Route::post('cameras', [CameraController::class, 'store']);
         Route::delete('cameras/{camera}', [CameraController::class, 'destroy']);
         Route::post('detections', [DetectionController::class, 'store']);
+        Route::post('evidencias', [EvidenciaController::class, 'store']);
         Route::post('alerts/{id}/acknowledge', [AlertController::class, 'acknowledge']);
         Route::delete('alerts/{alert}', [AlertController::class, 'destroy']);
     });
