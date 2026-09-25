@@ -48,7 +48,7 @@
                             <button id="btn-ia" class="px-3 py-1 bg-green-600 text-white rounded text-sm" disabled>Activar IA</button>
                         </div>
                     </div>
-                    <p id="ia-status" class="text-sm text-gray-500 mt-2">IA detenida. Se usa el modelo coco-ssd (detección de personas) en tu navegador.</p>
+                    <p id="ia-status" class="text-sm text-gray-500 mt-2">IA detenida. Modelos en tu navegador: coco-ssd (personas) + blazeface (rostros).</p>
                     <div id="ia-log" class="mt-3 h-32 overflow-y-auto bg-gray-50 border rounded p-2 text-xs space-y-1"></div>
                 </div>
             </div>
@@ -57,6 +57,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
 <script>
 const video = document.getElementById('cam');
 const canvas = document.getElementById('overlay');
@@ -128,16 +129,46 @@ function log(msg) {
 
 function apiToken() { return localStorage.getItem('vig_token') || ''; }
 
+async function uploadBlob(blob, name) {
+    const fd = new FormData();
+    fd.append('image', blob, name);
+    const res = await fetch('/api/v1/evidencias', { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken(), 'Accept': 'application/json' }, body: fd });
+    if (!res.ok) throw new Error('evidencia ' + res.status);
+    return (await res.json()).path;
+}
+
 async function uploadSnapshot() {
     const c = document.createElement('canvas');
     c.width = video.videoWidth; c.height = video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
-    const fd = new FormData();
-    fd.append('image', blob, 'frame.jpg');
-    const res = await fetch('/api/v1/evidencias', { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken(), 'Accept': 'application/json' }, body: fd });
-    if (!res.ok) throw new Error('evidencia ' + res.status);
-    return (await res.json()).path;
+    return uploadBlob(blob, 'frame.jpg');
+}
+
+let faceModel = null;
+
+// Recorta el rostro principal y lo sube. Devuelve {path, confidence} o null.
+async function captureFace() {
+    try {
+        faceModel = faceModel || await blazeface.load();
+        const faces = await faceModel.estimateFaces(video, false);
+        if (!faces.length) return null;
+        const f = faces.sort((a, b) => b.probability - a.probability)[0];
+        const [x1, y1] = f.topLeft, [x2, y2] = f.bottomRight;
+        const pad = 20;
+        const sx = Math.max(0, x1 - pad), sy = Math.max(0, y1 - pad);
+        const sw = Math.min(video.videoWidth - sx, (x2 - x1) + pad * 2);
+        const sh = Math.min(video.videoHeight - sy, (y2 - y1) + pad * 2);
+        const c = document.createElement('canvas');
+        c.width = sw; c.height = sh;
+        c.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+        const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+        const path = await uploadBlob(blob, 'face.jpg');
+        return { path: path, confidence: f.probability };
+    } catch (e) {
+        log('Rostro no capturado: ' + e.message);
+        return null;
+    }
 }
 
 async function sendEvent(type, person) {
@@ -159,6 +190,14 @@ async function sendEvent(type, person) {
             snapshot_path: snap,
             meta: { source: 'mac-browser', zone: 'live' },
         };
+        if (type !== 'approaching') {
+            const face = await captureFace();
+            if (face) {
+                body.face_image_path = face.path;
+                body.face_confidence = Math.round(face.confidence * 100) / 100;
+                body.face_label = 'Desconocido-' + String(sessionTrack).replace('MAC-', '');
+            }
+        }
         const res = await fetch('/api/v1/detections', { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken(), 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
         log(type + ' → API ' + res.status);
     } catch (e) { log('Error enviando ' + type + ': ' + e.message); }
