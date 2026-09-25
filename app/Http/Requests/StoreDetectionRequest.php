@@ -26,6 +26,9 @@ class StoreDetectionRequest extends FormRequest
             'bbox.w' => ['nullable', 'numeric'],
             'bbox.h' => ['nullable', 'numeric'],
             'snapshot_path' => ['nullable', 'string', 'max:500'],
+            'face_image_path' => ['nullable', 'string', 'max:500'],
+            'face_confidence' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'face_label' => ['nullable', 'string', 'max:100'],
             'meta' => ['nullable', 'array'],
             'detected_at' => ['nullable', 'date'],
         ];

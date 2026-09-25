@@ -26,9 +26,19 @@ class DetectionController extends Controller
     public function store(StoreDetectionRequest $request): JsonResponse
     {
         // Delgado: valida arriba, toda la IA vive en DetectionService
-        $detection = $this->service->ingest($request->validated());
+        $validated = $request->validated();
+        $detection = $this->service->ingest($validated);
         $detection->load('camera');
         $alert = $detection->alert()->latest()->first();
+
+        $face = null;
+        if (! empty($validated['face_image_path'])) {
+            $face = $this->service->registerFace($detection, [
+                'face_image_path' => $validated['face_image_path'],
+                'confidence' => $validated['face_confidence'] ?? $detection->confidence,
+                'label' => $validated['face_label'] ?? null,
+            ]);
+        }
 
         return response()->json([
             'detection' => [
@@ -42,6 +52,12 @@ class DetectionController extends Controller
                 ],
             ],
             'alert' => $alert ? new AlertResource($alert->load(['camera', 'detection'])) : null,
+            'face' => $face ? [
+                'id' => $face->id,
+                'label' => $face->label,
+                'confidence' => $face->confidence,
+                'face_image_path' => $face->face_image_path,
+            ] : null,
         ], 201);
     }
 }
