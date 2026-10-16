@@ -73,6 +73,17 @@ BUZZER_FISICO = os.getenv("BUZZER_FISICO", "true").lower() in ("1", "true", "si"
 # ESP32-CAM no puede abrir (toda su RAM se va en la cámara + WiFi).
 BLYNK_TOKEN = os.getenv("BLYNK_TOKEN", "")
 BLYNK_SERVER = os.getenv("BLYNK_SERVER", "blynk.cloud")
+# http por defecto: el TLS :443 a blynk.cloud se cuelga en redes compartidas
+# (probado: handshake sin ServerHello, todo da timeout). Con http responde al instante.
+BLYNK_SCHEME = os.getenv("BLYNK_SCHEME", "http").strip().lower() or "http"
+if BLYNK_SCHEME not in ("http", "https"):
+    BLYNK_SCHEME = "http"
+BLYNK_ARMA_PIN = os.getenv("BLYNK_ARMA_PIN", "V4")  # switch en Blynk: 1 armada, 0 desarmada
+# Rendimiento: procesa 1 de cada N frames (los demás solo se muestran).
+# N=2 duplica FPS efectivos con pérdida mínima en maqueta.
+YOLO_FRAME_SKIP = max(1, int(os.getenv("YOLO_FRAME_SKIP", "2")))
+# Cada cuántos segundos se re-lee V4/perímetro sin congelar el video.
+POLL_SEGUNDOS = float(os.getenv("POLL_SEGUNDOS", "10"))
 
 COOLDOWN = {"approaching": 30.0, "climbing": 20.0, "breach_confirmed": 30.0}
 
@@ -104,6 +115,28 @@ def leer_perimetro_api(camera_id: int) -> Optional[float]:
         r = requests.get(f"{API_BASE}/cameras/{camera_id}", headers={"Accept": "application/json"}, timeout=5)
         r.raise_for_status()
         return perimetro_desde_fence((r.json().get("data") or {}).get("fence_line"))
+    except Exception:
+        return None
+
+
+def leer_armado_blynk() -> Optional[bool]:
+    """Lee el switch de armado en Blynk (V4: 1 armada, 0 desarmada).
+    None si no hay token o falla la red (se asume ARMADA para no dejar
+    la maqueta sin protección por un corte de internet).
+    Usa http por defecto: https a blynk.cloud:443 se cuelga en esta red."""
+    if not BLYNK_TOKEN:
+        return None
+    try:
+        # Formato exacto Blynk: /external/api/get?token=XXX&V4 (pin sin valor)
+        r = requests.get(f"{BLYNK_SCHEME}://{BLYNK_SERVER}/external/api/get?token={BLYNK_TOKEN}&{BLYNK_ARMA_PIN}",
+                         timeout=3)
+        # Blynk responde el valor como texto: ["1"] / ["0"] o 1 / 0
+        txt = r.text.strip().strip('[" ]')
+        if txt.startswith("1"):
+            return True
+        if txt.startswith("0"):
+            return False
+        return None
     except Exception:
         return None
 
@@ -197,11 +230,11 @@ def _latido_blynk():
     """Hilo fondo: sesión Blynk (protocolo hardware, stdlib) para el estado Online.
 
     El ESP32-CAM no puede abrirla (toda su RAM se va en cámara+WiFi), así que la
-    abre el PC. Si la red bloquea el puerto o falla algo, reintenta en silencio:
-    Laravel ya actualiza V0/V1/V2/V3 por HTTP API y eso no depende de esto.
+    abre el PC. Usa puerto 80 PLANO (sin TLS): el TLS :443 se cuelga en redes
+    compartidas/ICS. Si falla algo, reintenta en silencio: Laravel ya actualiza
+    V0/V1/V2/V3 por HTTP API y eso no depende de esto.
     """
     import socket
-    import ssl
     import struct
 
     def recvn(s, n):
@@ -221,8 +254,8 @@ def _latido_blynk():
     mid = 0
     while True:
         try:
-            raw = socket.create_connection((BLYNK_SERVER, 443), timeout=10)
-            s = ssl.create_default_context().wrap_socket(raw, server_hostname=BLYNK_SERVER)
+            # Puerto 80 plano, sin SSL (ver nota arriba)
+            s = socket.create_connection((BLYNK_SERVER, 80), timeout=10)
             mid = (mid % 60000) + 1
             send(s, 2, BLYNK_TOKEN, mid)  # LOGIN
             s.settimeout(12)
@@ -231,7 +264,7 @@ def _latido_blynk():
                 raise ConnectionError('redirect no soportado aquí, reintento')
             if not (mtype == 0 and status == 200):
                 raise ConnectionError(f'login rechazado (status={status})')
-            print('[blynk] sesión abierta, Device online.')
+            print('[blynk] sesión abierta (puerto 80), Device online.')
             s.settimeout(25)
             while True:
                 try:
@@ -308,8 +341,52 @@ def main() -> None:
         pass
     print(f"[stream] abriendo {stream} …")
     print(f"[puertos] web Laravel http://localhost:8000 | video proxy http://localhost:{proxy_port or '?'} (interno, no se abre en el navegador)")
-    cap = cv2.VideoCapture(stream)
-    if not cap.isOpened():
+    import threading as _th
+
+    class CapturaFluida:
+        """Lee el MJPEG en hilo propio y guarda SOLO el último frame.
+
+        Sin esto, cv2.VideoCapture acumula buffer (2-5s de retraso) y cada
+        cap.read() bloquea al ritmo de la red → video a tirones. Con hilo,
+        el loop YOLO/display siempre toma lo más fresco y nunca se atasca.
+        """
+        def __init__(self, fuente):
+            self.cap = cv2.VideoCapture(fuente)
+            # Buffer mínimo: no guardar historia, solo lo fresco
+            try:
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+            self.fuente = fuente
+            self.frame = None
+            self.ok = False
+            self._vive = True
+            self._hilo = _th.Thread(target=self._bucle, daemon=True)
+            self._hilo.start()
+
+        def _bucle(self):
+            while self._vive:
+                ok, fr = self.cap.read()
+                if ok and fr is not None:
+                    self.frame = fr
+                    self.ok = True
+                else:
+                    self.ok = False
+                    time.sleep(0.2)
+                    try:
+                        self.cap.open(self.fuente)
+                    except Exception:
+                        pass
+
+        def leer(self):
+            return (self.frame is not None), (self.frame.copy() if self.frame is not None else None)
+
+        def abierta(self):
+            return self.cap.isOpened() or self.frame is not None
+
+    cap = CapturaFluida(stream)
+    time.sleep(1.5)  # deja que el hilo llene el primer frame
+    if not cap.abierta() or cap.frame is None:
         raise SystemExit(
             "No hay video. Revisa en orden:\n"
             " 1) ESP32-CAM encendida y conectada a tu WiFi (Monitor Serie 115200, pulsa RST).\n"
@@ -324,44 +401,78 @@ def main() -> None:
     frames = 0
     last_status = time.time()
     last_event = None
+    estado = {"armado": True}  # lo actualiza el hilo de fondo, el loop solo lee
+
+    def _hilo_poll(camera_id: int):
+        """Lee V4 + perímetro sin congelar el video (antes se hacía en el
+        loop cada 5s y con https colgado congelaba YOLO 5s)."""
+        global FENCE_Y
+        while True:
+            try:
+                nuevo = leer_perimetro_api(camera_id)
+                if nuevo is not None and abs(nuevo - FENCE_Y) > 0.005:
+                    FENCE_Y = nuevo
+                    print(f"[perimetro] movido desde la web: {FENCE_Y:.0%}")
+            except Exception:
+                pass
+            try:
+                a = leer_armado_blynk()
+                if a is not None and a != estado["armado"]:
+                    estado["armado"] = a
+                    print("[alarma] " + ("ARMADA desde Blynk." if a else "DESARMADA desde Blynk: video sí, detección no."))
+            except Exception:
+                pass
+            time.sleep(POLL_SEGUNDOS)
 
     if BLYNK_TOKEN:
         import threading
 
         threading.Thread(target=_latido_blynk, daemon=True).start()
+        threading.Thread(target=_hilo_poll, args=(args.camera_id,), daemon=True).start()
     else:
+        import threading
+
+        threading.Thread(target=_hilo_poll, args=(args.camera_id,), daemon=True).start()
         print("[blynk] sin BLYNK_TOKEN: el Device saldrá 'offline' (pines y push siguen funcionando).")
 
-    print(f"[ok] cámara DB id={args.camera_id} | perímetro={FENCE_Y} | conf>={CONF_MIN}. Pulsa Q para salir.")
+    print(f"[ok] cámara DB id={args.camera_id} | perímetro={FENCE_Y} | conf>={CONF_MIN} | skip=1/{YOLO_FRAME_SKIP} | imgsz={IMGSZ}. Pulsa Q para salir.")
+    persons_cache = []
+    fps_t = time.time()
+    fps_n = 0
+    fps_show = 0.0
     while True:
-        ok, frame = cap.read()
-        if not ok:
-            print("[stream] frame perdido, reintentando…")
-            time.sleep(1.0)
-            cap.open(stream)
+        ok, frame = cap.leer()
+        if not ok or frame is None:
+            time.sleep(0.05)
             continue
 
         H, W = frame.shape[:2]
         frames += 1
+        armado = estado["armado"]
         # Línea de perímetro (barda de la maqueta)
         cv2.line(frame, (0, int(H * FENCE_Y)), (W, int(H * FENCE_Y)), (0, 255, 0), 2)
         cv2.putText(frame, "PERIMETRO", (10, int(H * FENCE_Y) - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+        toca_inferir = armado and (frames % YOLO_FRAME_SKIP == 1)
         t0 = time.time()
-        results = model(frame, imgsz=IMGSZ, verbose=False)[0]
-        inf_ms = (time.time() - t0) * 1000
-        persons = [b for b in results.boxes or [] if int(b.cls[0]) == 0 and float(b.conf[0]) >= CONF_MIN]
+        if toca_inferir:
+            results = model(frame, imgsz=IMGSZ, verbose=False)[0]
+            persons_cache = [b for b in results.boxes or [] if int(b.cls[0]) == 0 and float(b.conf[0]) >= CONF_MIN]
+            persons = persons_cache
+        elif armado:
+            persons = persons_cache  # frame intermedio: reutiliza cajas, no gasta CPU
+        else:
+            persons = []  # desarmada desde Blynk: se ve video pero no se detecta ni alerta
+            persons_cache = []
+            cv2.putText(frame, "ALARMA DESARMADA (Blynk V4)", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+        inf_ms = (time.time() - t0) * 1000 if toca_inferir else 0
         now = time.time()
 
         if now - last_status > 5:
             last_status = now
-            nuevo = leer_perimetro_api(args.camera_id)
-            if nuevo is not None and abs(nuevo - FENCE_Y) > 0.005:
-                FENCE_Y = nuevo
-                print(f"[perimetro] movido desde la web: {FENCE_Y:.0%}")
-            print(f"[estado] frame {W}x{H} #{frames} | inferencia {inf_ms:.0f}ms | personas: {len(persons)}" +
+            print(f"[estado] frame {W}x{H} #{frames} | inferencia {inf_ms:.0f}ms | personas: {len(persons)} | armada: {'SI' if armado else 'NO'}" +
                   (f" ({last_event})" if persons and last_event else ""))
-            if inf_ms > 2000:
+            if toca_inferir and inf_ms > 2000:
                 print("[aviso] inferencia muy lenta: cierra otros programas o baja YOLO_IMGSZ a 416.")
 
         if persons:
@@ -406,12 +517,21 @@ def main() -> None:
         else:
             cv2.putText(frame, "sin personas", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
 
+        fps_n += 1
+        if time.time() - fps_t >= 2:
+            fps_show = fps_n / (time.time() - fps_t)
+            fps_t, fps_n = time.time(), 0
+        cv2.putText(frame, f"{fps_show:.0f}fps", (W - 90, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         if not args.no_show:
             cv2.imshow(f"Vigilancia YOLO - cam {args.camera_id} (Q=salir)", frame)
             if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
                 break
 
-    cap.release()
+    try:
+        cap._vive = False
+    except Exception:
+        pass
     cv2.destroyAllWindows()
 
 

@@ -1,0 +1,47 @@
+/* Diagrama técnico de flujos: YOLO <-> Laravel -> Blynk.
+   Render: dot -Tpng docs/flujos.png -o docs/flujos.png (ver docs/README-diagramas.md) */
+digraph flujos {
+    rankdir=TB;
+    nodesep=0.35;
+    ranksep=0.5;
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10];
+    edge [fontname="Helvetica", fontsize=9, color="#64748b"];
+
+    subgraph cluster_yolo {
+        label="YOLO PYTHON (PC)  ultralytics YOLOv8n, clase person";
+        style="rounded,filled"; fillcolor="#fff4d6"; color="#d4a017";
+        PROXY [label="Proxy :8080\nsondea /capture 10 fps\nsirve /stream + /capture"];
+        DET [label="Detector\nbbox person + FENCE_Y\napproaching / climbing / breach_confirmed"];
+    }
+    subgraph cluster_laravel {
+        label="API LARAVEL 13 + SQLite";
+        style="rounded,filled"; fillcolor="#ffe4e6"; color="#e78a93";
+        EP [label="POST /api/v1/evidencias\nPOST /api/v1/detections\nGET /api/v1/cameras/{id}\nPUT /api/v1/cameras/{id}"];
+        SVC [label="DetectionService::ingest\nAlertService::fromDetection\nBlynkService (batch, timeout 3s)"];
+        WEB [label="Monitoreo: slider perimetro\nmodal intruso + pitido\nGaleria evidencias"];
+    }
+    subgraph cluster_blynk {
+        label="BLYNK CLOUD  token + evento intruso_casa";
+        style="rounded,filled"; fillcolor="#e9e4f5"; color="#a78bfa";
+        PIN [label="batch/update\nV0 texto, V1 presencia, V3 online"];
+        GAL [label="update/property urls=V2\nImage Gallery"];
+        EVT [label="logEvent intruso_casa\npush + timeline"];
+    }
+
+    ESP32 [label="ESP32-CAM\n192.168.137.200\n/stream /capture /beep", fillcolor="#f1f5f9", color="#94a3b8"];
+    CEL [label="Celular operador\npush + timeline + galeria", fillcolor="#dcfce7", color="#86efac"];
+
+    ESP32 -> PROXY [label="MJPEG WiFi 10 fps"];
+    PROXY -> DET [label="http://localhost:8080/stream"];
+    PROXY -> WEB [label="http://PC:8080/stream"];
+    DET -> EP [label="POST foto + breach / GET fence_line 5 s", dir=both];
+    WEB -> EP [label="PUT fence_line [[0,y],[1,y]]"];
+    EP -> SVC [label="ingest + fromDetection"];
+    SVC -> PIN [label="1 llamada batch"];
+    SVC -> GAL [label="propiedad urls"];
+    SVC -> EVT [label="logEvent"];
+    EVT -> CEL [label="push: Alguien entro a tu casa"];
+    SVC -> WEB [label="GET /alerts cada 3 s (polling)"];
+    DET -> SVC [style=invis];
+    SVC -> EVT [style=invis];
+}

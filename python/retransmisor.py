@@ -32,8 +32,10 @@ latest = {"jpg": None, "t": 0.0, "ok": False}
 
 
 def lector(source: str) -> None:
-    """Sondea /capture en bucle (~10 fps). Son peticiones cortas: la ESP32
-    nunca queda con una conexión colgada y /beep siempre entra."""
+    """Sondea /capture en bucle (~4 fps). Son peticiones cortas: la ESP32
+    nunca queda con una conexión colgada y /beep siempre entra.
+    4 fps basta para YOLO en maqueta y evita saturar/sobrecalentar la ESP32
+    (a 10-12 fps la cámara se cuelga y deja de responder HTTP)."""
     last_warn = 0.0
     while True:
         try:
@@ -48,7 +50,7 @@ def lector(source: str) -> None:
             latest["jpg"] = jpg
             latest["t"] = time.time()
             latest["ok"] = True
-            time.sleep(0.08)
+            time.sleep(0.25)
         except Exception as exc:
             latest["ok"] = latest["ok"] and (time.time() - latest["t"] < 10)
             if time.time() - last_warn > 5:

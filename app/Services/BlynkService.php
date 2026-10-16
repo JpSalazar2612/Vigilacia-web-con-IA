@@ -31,12 +31,17 @@ class BlynkService
 
     protected function base(): string
     {
-        $server = rtrim((string) config('services.blynk.server', 'blynk.cloud'), '/');
-        if (! str_starts_with($server, 'http')) {
-            $server = 'https://'.$server;
+        $server = trim((string) config('services.blynk.server', 'blynk.cloud'));
+        // Si ya trae esquema (http://... o https://...) se respeta tal cual.
+        if (str_starts_with($server, 'http://') || str_starts_with($server, 'https://')) {
+            return rtrim($server, '/').'/external/api';
+        }
+        $scheme = strtolower((string) config('services.blynk.scheme', 'http'));
+        if (! in_array($scheme, ['http', 'https'], true)) {
+            $scheme = 'http';
         }
 
-        return $server.'/external/api';
+        return $scheme.'://'.rtrim($server, '/').'/external/api';
     }
 
     protected function token(): string

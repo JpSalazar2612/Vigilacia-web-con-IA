@@ -48,6 +48,10 @@ return [
     */
     'blynk' => [
         'server' => env('BLYNK_SERVER', 'blynk.cloud'),
+        // http por defecto: en redes con ICS/firewall el TLS :443 a
+        // blynk.cloud se cuelga en el handshake y todo da timeout.
+        // Pon BLYNK_SCHEME=https solo si tu red lo permite.
+        'scheme' => env('BLYNK_SCHEME', 'http'),
         'auth_token' => env('BLYNK_AUTH_TOKEN'),
         'pin_texto' => env('BLYNK_PIN_TEXTO', 'V0'),
         'pin_presencia' => env('BLYNK_PIN_PRESENCIA', 'V1'),

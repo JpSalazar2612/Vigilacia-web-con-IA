@@ -100,7 +100,11 @@ document.getElementById('btn-save-token').onclick = () => {
 function beep(freq=880, ms=400, times=3){
     try{
         const AC = window.AudioContext || window.webkitAudioContext;
-        const ac = new AC();
+        // Reutiliza un solo contexto (los navegadores bloquean el audio
+        // hasta el primer clic: se desbloquea con pointerdown de abajo).
+        if (!window._vigAC) window._vigAC = new AC();
+        const ac = window._vigAC;
+        if (ac.state === 'suspended') ac.resume();
         for (let i=0;i<times;i++){
             const o=ac.createOscillator(), g=ac.createGain();
             o.connect(g); g.connect(ac.destination); o.frequency.value=freq;
@@ -112,6 +116,14 @@ function beep(freq=880, ms=400, times=3){
         }
     }catch(e){}
 }
+// Desbloqueo de audio: sin un clic previo el navegador silencia el pitido.
+window.addEventListener('pointerdown', () => {
+    try{
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!window._vigAC) window._vigAC = new AC();
+        if (window._vigAC.state === 'suspended') window._vigAC.resume();
+    }catch(e){}
+});
 document.getElementById('btn-beep').onclick = () => beep();
 
 // --- Perímetro sobre el stream ---
@@ -210,6 +222,9 @@ selCam.onchange = async () => {
 };
 
 // --- Polling de alertas: mensaje emergente + pitido ---
+// Nota: `approaching` es solo informativo (no crea alerta por diseño en
+// DetectionService): modal+sonido solo para critical/warning. La galería
+// sí se refresca con cualquier evento nuevo porque trae foto.
 async function pollAlerts(){
     try{
         const res = await fetch('/api/v1/alerts',{headers:{'Accept':'application/json'}});
@@ -220,15 +235,33 @@ async function pollAlerts(){
         if (newest.id > lastAlertId){
             const isNew = lastAlertId !== 0;
             lastAlertId = newest.id;
-            if (!isNew) return; // no alarmar por historial al cargar
+            refreshGallery();
+            if (!isNew) { mostrarPendienteInicial(alerts); return; } // no alarmar por historial al cargar
             const camId = newest.camera?.id;
             if (currentCamera && camId && String(camId) !== String(currentCamera.id)) return;
             if (newest.level === 'critical' || newest.level === 'warning'){
                 currentAlertId = newest.id;
                 showIntrusion(newest);
-                refreshGallery();
+            } else {
+                log('Evento ' + (newest.detection?.event_type || newest.level) + ': ' + (newest.message || ''));
             }
         }
+    }catch(e){}
+}
+
+// Al abrir la página, si hay una alerta pendiente reciente (<10 min) se
+// muestra de inmediato: antes solo sonaban las que llegaban DESPUÉS de abrir.
+function mostrarPendienteInicial(alerts){
+    try{
+        const a = alerts[0];
+        if (!a || (a.level !== 'critical' && a.level !== 'warning')) return;
+        if (a.status && a.status !== 'pending') return;
+        const t = a.sent_at || a.created_at;
+        if (t && (Date.now() - new Date(t).getTime()) > 10*60*1000) return;
+        const camId = a.camera?.id;
+        if (currentCamera && camId && String(camId) !== String(currentCamera.id)) return;
+        currentAlertId = a.id;
+        showIntrusion(a);
     }catch(e){}
 }
 
