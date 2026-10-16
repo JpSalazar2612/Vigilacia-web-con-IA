@@ -16,6 +16,7 @@ class CameraResource extends JsonResource
             'location' => $this->location,
             'zone' => $this->zone,
             'stream_url' => $this->stream_url,
+            'fence_line' => $this->fence_line, // [[x1,y1],[x2,y2]] normalizado; YOLO lee la altura de aquí
             'status' => $this->status,
             'is_active' => $this->is_active,
             'ai_enabled' => $this->ai_enabled,

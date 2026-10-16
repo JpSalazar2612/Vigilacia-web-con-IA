@@ -35,4 +35,26 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Blynk IoT (maqueta casa 35x30, ESP32-CAM único)
+    |--------------------------------------------------------------------------
+    | Laravel empuja a Blynk por HTTP API (el ESP32-CAM solo hace streaming
+    | MJPEG, no tiene RAM para llevar la librería Blynk + cámara a la vez).
+    | - BLYNK_SERVER: blynk.cloud (o blynk.io según tu región)
+    | - BLYNK_AUTH_TOKEN: token del Device (Device Info en consola/app)
+    | - V0 texto alerta, V1 presencia (0/1), V2 foto URL (galería), V3 online
+    | - BLYNK_EVENT_CODE: código del Evento "intruso_casa" (Events & Notifications)
+    */
+    'blynk' => [
+        'server' => env('BLYNK_SERVER', 'blynk.cloud'),
+        'auth_token' => env('BLYNK_AUTH_TOKEN'),
+        'pin_texto' => env('BLYNK_PIN_TEXTO', 'V0'),
+        'pin_presencia' => env('BLYNK_PIN_PRESENCIA', 'V1'),
+        'pin_foto' => env('BLYNK_PIN_FOTO', 'V2'),
+        'pin_online' => env('BLYNK_PIN_ONLINE', 'V3'),
+        'event_code' => env('BLYNK_EVENT_CODE', 'intruso_casa'),
+        'enabled' => env('BLYNK_ENABLED', false),
+    ],
+
 ];

@@ -1,323 +1,290 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Monitoreo en vivo') }}
+            {{ __('Monitoreo en vivo — ESP32-CAM') }}
         </h2>
     </x-slot>
 
-    <div class="py-12">
-        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-4">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6">
-                    <p class="text-sm text-gray-500 mb-3">Cámara de tu Mac en tiempo real. Acepta el permiso de cámara del navegador.</p>
-                    <div class="relative bg-black rounded overflow-hidden">
-                        <video id="cam" class="w-full" autoplay playsinline muted></video>
-                        <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
-                        <span id="rec-dot" class="hidden absolute top-3 right-3 text-red-500 font-bold">● REC</span>
-                        <span id="ia-badge" class="hidden absolute top-3 left-3 bg-green-600 text-white text-xs px-2 py-1 rounded">IA ACTIVA</span>
+    <div class="py-8">
+        <div class="max-w-6xl mx-auto sm:px-6 lg:px-8 space-y-4">
+            {{-- Selector de cámara manual --}}
+            <div class="bg-white shadow-sm sm:rounded-lg p-4">
+                <div class="grid md:grid-cols-3 gap-3 text-sm items-end">
+                    <div>
+                        <label class="text-gray-600">Cámara (añadida en Dashboard)</label>
+                        <select id="sel-cam" class="w-full border rounded px-2 py-1"></select>
                     </div>
-                    <div class="flex flex-wrap gap-2 mt-4">
-                        <button id="btn-start" class="px-4 py-2 bg-black text-white rounded text-sm">Iniciar cámara</button>
-                        <button id="btn-stop" class="px-4 py-2 bg-gray-200 rounded text-sm">Detener</button>
-                        <button id="btn-rec" class="px-4 py-2 bg-red-600 text-white rounded text-sm" disabled>Grabar</button>
-                        <a id="btn-dl" class="hidden px-4 py-2 bg-green-600 text-white rounded text-sm" download="vigilancia.webm">Descargar grabación</a>
-                        <button id="btn-beep" class="px-4 py-2 bg-yellow-400 rounded text-sm">Probar sonido</button>
+                    <div>
+                        <label class="text-gray-600">Token API (para Atender alertas)</label>
+                        <input id="inp-token" type="password" placeholder="1|..." class="w-full border rounded px-2 py-1">
                     </div>
-                    <div class="mt-3">
-                        <label class="text-sm text-gray-600">Altura del perímetro: <span id="fence-val">60%</span></label>
-                        <input id="fence-range" type="range" min="10" max="90" value="60" class="w-full">
+                    <div class="flex gap-2">
+                        <button id="btn-save-token" class="px-3 py-1 bg-gray-800 text-white rounded text-sm">Guardar</button>
+                        <button id="btn-beep" class="px-3 py-1 bg-yellow-400 rounded text-sm">Probar sonido</button>
+                        <button id="btn-reload" class="px-3 py-1 bg-gray-200 rounded text-sm">Recargar stream</button>
                     </div>
-                    <p id="cam-status" class="text-sm text-gray-500 mt-2">Cámara detenida.</p>
                 </div>
+                <p id="cam-info" class="text-sm text-gray-500 mt-2">Selecciona tu ESP32-CAM…</p>
             </div>
 
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6">
-                    <h3 class="font-semibold mb-3">Detección IA + API</h3>
-                    <div class="grid md:grid-cols-3 gap-3 text-sm">
-                        <div>
-                            <label class="text-gray-600">Cámara registrada</label>
-                            <select id="sel-cam" class="w-full border rounded px-2 py-1"></select>
-                        </div>
-                        <div>
-                            <label class="text-gray-600">Token API (POST /api/v1/login)</label>
-                            <input id="inp-token" type="password" placeholder="1|..." class="w-full border rounded px-2 py-1">
-                        </div>
-                        <div class="flex items-end gap-2">
-                            <button id="btn-save-token" class="px-3 py-1 bg-gray-800 text-white rounded text-sm">Guardar</button>
-                            <button id="btn-ia" class="px-3 py-1 bg-green-600 text-white rounded text-sm" disabled>Activar IA</button>
-                        </div>
-                    </div>
-                    <p id="ia-status" class="text-sm text-gray-500 mt-2">IA detenida. Modelos en tu navegador: coco-ssd (personas) + blazeface (rostros).</p>
-                    <div id="ia-log" class="mt-3 h-32 overflow-y-auto bg-gray-50 border rounded p-2 text-xs space-y-1"></div>
+            {{-- Stream ESP32-CAM + perímetro --}}
+            <div class="bg-white shadow-sm sm:rounded-lg p-4">
+                <div class="relative bg-black rounded overflow-hidden">
+                    <img id="esp-stream" class="w-full" style="min-height:240px" alt="Stream ESP32-CAM">
+                    <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+                    <span id="live-badge" class="absolute top-3 left-3 bg-red-600 text-white text-xs px-2 py-1 rounded">● EN VIVO</span>
+                    <span id="ia-badge" class="absolute top-3 right-3 bg-green-600 text-white text-xs px-2 py-1 rounded">YOLO · clase person</span>
                 </div>
+                <div class="mt-3">
+                    <label class="text-sm text-gray-600">Altura del perímetro (barda maqueta): <span id="fence-val">60%</span></label>
+                    <input id="fence-range" type="range" min="10" max="90" value="60" class="w-full">
+                    <p class="text-xs text-gray-500">La detección la hace <b>Python + YOLO (ultralytics)</b> sobre este mismo stream. Cuando el centro de la persona cruza la línea verde → la API crea alerta y aquí suena el pitido + mensaje emergente.</p>
+                </div>
+                <p id="stream-status" class="text-sm text-gray-500 mt-2">Stream detenido.</p>
+            </div>
+
+            {{-- Galería evidencias (paralela al widget Galería de Blynk) --}}
+            <div class="bg-white shadow-sm sm:rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-semibold">Galería de imágenes (últimas detecciones)</h3>
+                    <span class="text-xs text-gray-500">Las mismas fotos se empujan al widget Galería de Blynk (V2)</span>
+                </div>
+                <div id="gallery" class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3"></div>
+            </div>
+
+            <div class="bg-white shadow-sm sm:rounded-lg p-4">
+                <h3 class="font-semibold text-sm mb-1">Log de monitoreo</h3>
+                <div id="ia-log" class="h-28 overflow-y-auto bg-gray-50 border rounded p-2 text-xs space-y-1"></div>
             </div>
         </div>
     </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    {{-- Modal emergente intrusión --}}
+    <div id="alert-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 text-center shadow-2xl border-4 border-red-500">
+            <p class="text-4xl">🚨</p>
+            <h3 class="text-xl font-bold text-red-600 mt-1">¡Alguien entró a tu casa!</h3>
+            <p id="modal-detail" class="text-sm text-gray-600 mt-1"></p>
+            <img id="modal-img" class="w-full rounded mt-3 hidden" alt="Evidencia">
+            <div class="flex gap-2 justify-center mt-4">
+                <button id="btn-ack" class="px-4 py-2 bg-black text-white rounded text-sm">Atender</button>
+                <button id="btn-mute" class="px-4 py-2 bg-gray-200 rounded text-sm">Cerrar y silenciar</button>
+            </div>
+        </div>
+    </div>
+
 <script>
-const video = document.getElementById('cam');
+const PRESELECT = @json($cameraId ?? null);
+const selCam = document.getElementById('sel-cam');
+const img = document.getElementById('esp-stream');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
-const statusEl = document.getElementById('cam-status');
-const recDot = document.getElementById('rec-dot');
-const btnRec = document.getElementById('btn-rec');
-const btnDl = document.getElementById('btn-dl');
-const iaStatus = document.getElementById('ia-status');
+const camInfo = document.getElementById('cam-info');
+const streamStatus = document.getElementById('stream-status');
+const gallery = document.getElementById('gallery');
 const iaLog = document.getElementById('ia-log');
-const iaBadge = document.getElementById('ia-badge');
-let stream = null, recorder = null, chunks = [];
-let fenceY = 0.6;
+const modal = document.getElementById('alert-modal');
+const modalDetail = document.getElementById('modal-detail');
+const modalImg = document.getElementById('modal-img');
+let fenceY = 0.6, currentCamera = null, lastAlertId = 0, currentAlertId = null, silenced = false;
+let streamOk = false, retryTimer = null;
 
-// --- IA state ---
-let model = null, aiActive = false, aiBusy = false;
-let sessionTrack = null, lastSeenAt = 0;
-let lastSent = { approaching: 0, climbing: 0, breach_confirmed: 0 };
-const COOLDOWN = { approaching: 30000, climbing: 20000, breach_confirmed: 30000 };
-
-function sizeCanvas() {
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-}
-
-function drawScene(persons) {
-    sizeCanvas();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const sx = canvas.width / (video.videoWidth || 640);
-    const sy = canvas.height / (video.videoHeight || 480);
-    // perímetro
-    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.setLineDash([10, 6]);
-    ctx.beginPath(); ctx.moveTo(0, canvas.height * fenceY); ctx.lineTo(canvas.width, canvas.height * fenceY); ctx.stroke();
-    ctx.setLineDash([]); ctx.fillStyle = '#22c55e'; ctx.font = '16px sans-serif';
-    ctx.fillText('PERÍMETRO', 10, canvas.height * fenceY - 8);
-    // personas
-    (persons || []).forEach(p => {
-        const [x, y, w, h] = p.bbox;
-        const cy = (y + h / 2) / (video.videoHeight || 480);
-        ctx.strokeStyle = cy > fenceY ? '#ef4444' : (Math.abs(cy - fenceY) < 0.08 ? '#eab308' : '#22c55e');
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.beginPath(); ctx.arc((x + w / 2) * sx, (y + h / 2) * sy, 5, 0, 7); ctx.fill();
-    });
-}
-
-function beep(freq = 880, ms = 400, times = 3) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const ac = new AC();
-    for (let i = 0; i < times; i++) {
-        const o = ac.createOscillator();
-        const g = ac.createGain();
-        o.connect(g); g.connect(ac.destination);
-        o.frequency.value = freq;
-        const t = ac.currentTime + i * 0.5;
-        g.gain.setValueAtTime(0.001, t);
-        g.gain.exponentialRampToValueAtTime(0.9, t + 0.05);
-        g.gain.exponentialRampToValueAtTime(0.001, t + ms / 1000);
-        o.start(t); o.stop(t + ms / 1000 + 0.05);
-    }
-}
-
-function log(msg) {
-    const d = document.createElement('div');
-    d.textContent = new Date().toLocaleTimeString() + ' - ' + msg;
-    iaLog.prepend(d);
-}
-
-function apiToken() { return localStorage.getItem('vig_token') || ''; }
-
-async function uploadBlob(blob, name) {
-    const fd = new FormData();
-    fd.append('image', blob, name);
-    const res = await fetch('/api/v1/evidencias', { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken(), 'Accept': 'application/json' }, body: fd });
-    if (!res.ok) throw new Error('evidencia ' + res.status);
-    return (await res.json()).path;
-}
-
-async function uploadSnapshot() {
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth; c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
-    return uploadBlob(blob, 'frame.jpg');
-}
-
-let faceModel = null;
-
-// Recorta el rostro principal y lo sube. Devuelve {path, confidence} o null.
-async function captureFace() {
-    try {
-        faceModel = faceModel || await blazeface.load();
-        const faces = await faceModel.estimateFaces(video, false);
-        if (!faces.length) return null;
-        const f = faces.sort((a, b) => b.probability - a.probability)[0];
-        const [x1, y1] = f.topLeft, [x2, y2] = f.bottomRight;
-        const pad = 20;
-        const sx = Math.max(0, x1 - pad), sy = Math.max(0, y1 - pad);
-        const sw = Math.min(video.videoWidth - sx, (x2 - x1) + pad * 2);
-        const sh = Math.min(video.videoHeight - sy, (y2 - y1) + pad * 2);
-        const c = document.createElement('canvas');
-        c.width = sw; c.height = sh;
-        c.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-        const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-        const path = await uploadBlob(blob, 'face.jpg');
-        return { path: path, confidence: f.probability };
-    } catch (e) {
-        log('Rostro no capturado: ' + e.message);
-        return null;
-    }
-}
-
-async function sendEvent(type, person) {
-    const now = Date.now();
-    if (now - (lastSent[type] || 0) < COOLDOWN[type]) return;
-    lastSent[type] = now;
-    const camId = document.getElementById('sel-cam').value;
-    if (!camId) { log('Sin cámara seleccionada, evento no enviado.'); return; }
-    try {
-        const snap = await uploadSnapshot();
-        const H = video.videoHeight || 480, W = video.videoWidth || 640;
-        const [x, y, w, h] = person ? person.bbox : [0, 0, W, H];
-        const body = {
-            camera_id: parseInt(camId),
-            track_id: sessionTrack,
-            event_type: type,
-            confidence: person ? person.score : 0.7,
-            bbox: { x: x / W, y: y / H, w: w / W, h: h / H },
-            snapshot_path: snap,
-            meta: { source: 'mac-browser', zone: 'live' },
-        };
-        if (type !== 'approaching') {
-            const face = await captureFace();
-            if (face) {
-                body.face_image_path = face.path;
-                body.face_confidence = Math.round(face.confidence * 100) / 100;
-                body.face_label = 'Desconocido-' + String(sessionTrack).replace('MAC-', '');
-            }
-        }
-        const res = await fetch('/api/v1/detections', { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken(), 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
-        log(type + ' → API ' + res.status);
-    } catch (e) { log('Error enviando ' + type + ': ' + e.message); }
-}
-
-async function iaLoop() {
-    if (!aiActive || aiBusy || !stream || !model) return;
-    aiBusy = true;
-    try {
-        const preds = await model.detect(video);
-        const persons = preds.filter(p => p.class === 'person' && p.score > 0.6);
-        drawScene(persons);
-        const now = Date.now();
-        if (persons.length) {
-            if (!sessionTrack || now - lastSeenAt > 5000) sessionTrack = 'MAC-' + String(Math.floor(1000 + Math.random() * 9000));
-            lastSeenAt = now;
-            const H = video.videoHeight || 480;
-            const cy = (persons[0].bbox[1] + persons[0].bbox[3] / 2) / H;
-            if (cy > fenceY) {
-                await sendEvent('breach_confirmed', persons[0]);
-                beep(440, 500, 3);
-            } else if (Math.abs(cy - fenceY) < 0.08) {
-                await sendEvent('climbing', persons[0]);
-                beep(880, 300, 2);
-            } else {
-                await sendEvent('approaching', persons[0]);
-            }
-        }
-    } catch (e) { iaStatus.textContent = 'Error IA: ' + e.message; }
-    aiBusy = false;
-}
-
-document.getElementById('btn-ia').onclick = async (e) => {
-    if (aiActive) { aiActive = false; iaBadge.classList.add('hidden'); e.target.textContent = 'Activar IA'; iaStatus.textContent = 'IA detenida.'; return; }
-    if (!apiToken()) { iaStatus.textContent = 'Guarda primero tu token API.'; return; }
-    e.target.disabled = true;
-    try {
-        iaStatus.textContent = 'Cargando modelo coco-ssd…';
-        model = model || await cocoSsd.load();
-        aiActive = true;
-        iaBadge.classList.remove('hidden');
-        e.target.textContent = 'Detener IA';
-        iaStatus.textContent = 'IA activa: detectando personas cada 0.8s.';
-        log('IA activada.');
-    } catch (err) { iaStatus.textContent = 'No se pudo cargar el modelo: ' + err.message; }
-    e.target.disabled = false;
-};
-setInterval(iaLoop, 800);
-
+function log(m){ const d=document.createElement('div'); d.textContent=new Date().toLocaleTimeString()+' - '+m; iaLog.prepend(d); }
+function apiToken(){ return localStorage.getItem('vig_token')||''; }
+document.getElementById('inp-token').value = apiToken();
 document.getElementById('btn-save-token').onclick = () => {
     const v = document.getElementById('inp-token').value.trim();
     if (v) { localStorage.setItem('vig_token', v); log('Token guardado.'); }
 };
-document.getElementById('inp-token').value = apiToken();
 
-async function loadCameras() {
-    try {
-        const res = await fetch('/api/v1/cameras', { headers: { 'Accept': 'application/json' } });
-        const json = await res.json();
-        const sel = document.getElementById('sel-cam');
-        (json.data || []).forEach(c => {
-            const o = document.createElement('option');
-            o.value = c.id; o.textContent = c.name + ' (' + c.zone + ')';
-            sel.appendChild(o);
-        });
-    } catch (e) { log('No se pudieron cargar cámaras.'); }
+function beep(freq=880, ms=400, times=3){
+    try{
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ac = new AC();
+        for (let i=0;i<times;i++){
+            const o=ac.createOscillator(), g=ac.createGain();
+            o.connect(g); g.connect(ac.destination); o.frequency.value=freq;
+            const t=ac.currentTime + i*0.5;
+            g.gain.setValueAtTime(0.001,t);
+            g.gain.exponentialRampToValueAtTime(0.9,t+0.05);
+            g.gain.exponentialRampToValueAtTime(0.001,t+ms/1000);
+            o.start(t); o.stop(t+ms/1000+0.05);
+        }
+    }catch(e){}
 }
-loadCameras();
-
-document.getElementById('fence-range').oninput = (e) => {
-    fenceY = e.target.value / 100;
-    document.getElementById('fence-val').textContent = e.target.value + '%';
-    if (stream) drawScene([]);
-};
-
-document.getElementById('btn-start').onclick = async () => {
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false });
-        video.srcObject = stream;
-        await video.play();
-        drawScene([]);
-        statusEl.textContent = 'Cámara activa (' + video.videoWidth + 'x' + video.videoHeight + ').';
-        btnRec.disabled = false;
-        document.getElementById('btn-ia').disabled = false;
-    } catch (e) {
-        statusEl.textContent = 'No se pudo abrir la cámara: ' + e.message;
-    }
-};
-
-document.getElementById('btn-stop').onclick = () => {
-    aiActive = false; iaBadge.classList.add('hidden');
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
-    statusEl.textContent = 'Cámara detenida.';
-    btnRec.disabled = true;
-    document.getElementById('btn-ia').disabled = true;
-};
-
-btnRec.onclick = () => {
-    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
-    chunks = [];
-    recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        btnDl.href = URL.createObjectURL(blob);
-        btnDl.classList.remove('hidden');
-        recDot.classList.add('hidden');
-        btnRec.textContent = 'Grabar';
-        statusEl.textContent = 'Grabación lista para descargar (' + (blob.size / 1048576).toFixed(1) + ' MB).';
-    };
-    recorder.start();
-    recDot.classList.remove('hidden');
-    btnRec.textContent = 'Detener grabación';
-    statusEl.textContent = 'Grabando…';
-};
-
 document.getElementById('btn-beep').onclick = () => beep();
-video.addEventListener('loadedmetadata', () => drawScene([]));
-window.addEventListener('resize', () => { if (stream) drawScene([]); });
+
+// --- Perímetro sobre el stream ---
+function sizeCanvas(){
+    const r = img.getBoundingClientRect();
+    canvas.width = img.naturalWidth || r.width || 640;
+    canvas.height = img.naturalHeight || r.height || 480;
+}
+function drawFence(){
+    sizeCanvas();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.strokeStyle='#22c55e'; ctx.lineWidth=3; ctx.setLineDash([10,6]);
+    ctx.beginPath(); ctx.moveTo(0,canvas.height*fenceY); ctx.lineTo(canvas.width,canvas.height*fenceY); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle='#22c55e'; ctx.font='16px sans-serif';
+    ctx.fillText('PERÍMETRO',10,canvas.height*fenceY-8);
+}
+let fenceSaveTimer = null;
+document.getElementById('fence-range').oninput = (e) => {
+    fenceY = e.target.value/100;
+    document.getElementById('fence-val').textContent = e.target.value+'%';
+    drawFence();
+    // Guarda en la cámara (debounce 1s): YOLO lo lee de la API y mueve el suyo solo
+    clearTimeout(fenceSaveTimer);
+    fenceSaveTimer = setTimeout(async () => {
+        if (!currentCamera) return;
+        if (!apiToken()) { log('Perímetro local OK, pero sin token no se sincroniza con YOLO.'); return; }
+        try {
+            const res = await fetch('/api/v1/cameras/' + currentCamera.id, {
+                method: 'PUT',
+                headers: { 'Authorization': 'Bearer ' + apiToken(), 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ fence_line: [[0, fenceY], [1, fenceY]] })
+            });
+            if (res.ok) { currentCamera.fence_line = [[0, fenceY], [1, fenceY]]; log('Perímetro ' + Math.round(fenceY*100) + '% guardado → YOLO lo toma en ~5s.'); }
+            else log('No se guardó el perímetro (HTTP ' + res.status + ').');
+        } catch (err) { log('No se guardó el perímetro: ' + err.message); }
+    }, 1000);
+};
+img.addEventListener('load', drawFence);
+window.addEventListener('resize', drawFence);
+setInterval(()=>{ if (img.src) drawFence(); }, 2000);
+
+function setStream(cam){
+    currentCamera = cam;
+    streamOk = false;
+    if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+    if (!cam){ streamStatus.textContent='Sin cámara.'; return; }
+    camInfo.textContent = cam.name+' · '+cam.zone+' · '+(cam.location||'maqueta');
+    // Si la cámara trae perímetro guardado (movido antes), el slider lo respeta
+    if (cam.fence_line && cam.fence_line[0] && cam.fence_line[0][1] !== undefined) {
+        const y = parseFloat(cam.fence_line[0][1]);
+        if (y >= 0.05 && y <= 0.95) {
+            fenceY = y;
+            document.getElementById('fence-range').value = Math.round(y * 100);
+            document.getElementById('fence-val').textContent = Math.round(y * 100) + '%';
+        }
+    }
+    // MJPEG del proxy local. Cache-buster para forzar reconexión.
+    img.src = cam.stream_url + (cam.stream_url.includes('?')?'&':'?') + 't=' + Date.now();
+    streamStatus.textContent = 'Conectando a '+cam.stream_url+' …';
+    // Si el proxy aún no tenía video (terminal 2 recién encendida), reintenta solo cada 10s
+    retryTimer = setInterval(() => {
+        if (!streamOk && currentCamera) {
+            img.src = currentCamera.stream_url + (currentCamera.stream_url.includes('?')?'&':'?') + 't=' + Date.now();
+            streamStatus.textContent = 'Reintentando ' + currentCamera.stream_url + ' … (¿terminal 2 corriendo?)';
+        }
+    }, 10000);
+}
+img.onload = () => { streamOk = true; streamStatus.textContent = 'Grabando en vivo desde ESP32-CAM ('+img.naturalWidth+'x'+img.naturalHeight+'). Perímetro al '+Math.round(fenceY*100)+'%.'; drawFence(); };
+img.onerror = () => { streamOk = false; streamStatus.textContent = 'Sin video todavía. Revisa que la terminal 2 esté corriendo; reintento automático cada 10s…'; };
+document.getElementById('btn-reload').onclick = () => { if (currentCamera) setStream(currentCamera); };
+
+async function loadCameras(){
+    try{
+        const res = await fetch('/api/v1/cameras',{headers:{'Accept':'application/json'}});
+        const json = await res.json();
+        const list = json.data || [];
+        selCam.innerHTML='';
+        list.forEach(c=>{
+            const o=document.createElement('option');
+            o.value=c.id; o.textContent=c.name+' ('+c.zone+')';
+            selCam.appendChild(o);
+        });
+        let target = PRESELECT || new URLSearchParams(location.search).get('camera') || (list[0]&&list[0].id);
+        if (target){
+            selCam.value = target;
+            const detail = await (await fetch('/api/v1/cameras/'+target,{headers:{'Accept':'application/json'}})).json();
+            setStream(detail.data || detail);
+        } else {
+            camInfo.textContent = 'No hay cámaras. Añade tu ESP32-CAM en el Dashboard.';
+        }
+    }catch(e){ log('No se pudieron cargar cámaras.'); }
+}
+selCam.onchange = async () => {
+    const detail = await (await fetch('/api/v1/cameras/'+selCam.value,{headers:{'Accept':'application/json'}})).json();
+    setStream(detail.data || detail);
+};
+
+// --- Polling de alertas: mensaje emergente + pitido ---
+async function pollAlerts(){
+    try{
+        const res = await fetch('/api/v1/alerts',{headers:{'Accept':'application/json'}});
+        const json = await res.json();
+        const alerts = json.data || [];
+        if (!alerts.length) return;
+        const newest = alerts[0];
+        if (newest.id > lastAlertId){
+            const isNew = lastAlertId !== 0;
+            lastAlertId = newest.id;
+            if (!isNew) return; // no alarmar por historial al cargar
+            const camId = newest.camera?.id;
+            if (currentCamera && camId && String(camId) !== String(currentCamera.id)) return;
+            if (newest.level === 'critical' || newest.level === 'warning'){
+                currentAlertId = newest.id;
+                showIntrusion(newest);
+                refreshGallery();
+            }
+        }
+    }catch(e){}
+}
+
+function showIntrusion(alert){
+    const zone = alert.camera?.zone || currentCamera?.zone || 'tu casa';
+    const track = alert.detection?.track_id ? ' · Track '+alert.detection.track_id : '';
+    modalDetail.textContent = zone + track + ' · ' + (alert.message||'');
+    modalImg.classList.add('hidden');
+    modal.classList.remove('hidden');
+    if (!silenced){
+        if (alert.level === 'critical') beep(440, 500, 3); // pitido grave de intrusión
+        else beep(880, 300, 2);                            // aviso acercándose
+    }
+    log('ALERTA ' + alert.level + ': ' + alert.message);
+    // Foto de evidencia si la detección trae snapshot
+    const detId = alert.detection?.id;
+    if (detId) fetch('/api/v1/detections',{headers:{'Accept':'application/json'}}).catch(()=>{});
+}
+
+document.getElementById('btn-mute').onclick = () => { modal.classList.add('hidden'); silenced = true; setTimeout(()=>silenced=false, 60000); };
+document.getElementById('btn-ack').onclick = async () => {
+    modal.classList.add('hidden');
+    if (!currentAlertId) return;
+    if (!apiToken()){ log('Sin token: no se pudo Atender (solo se cerró el aviso).'); return; }
+    try{
+        const res = await fetch('/api/v1/alerts/'+currentAlertId+'/acknowledge',{method:'POST',headers:{'Authorization':'Bearer '+apiToken(),'Accept':'application/json'}});
+        log('Atender alerta → '+res.status);
+    }catch(e){ log('Error atendiendo: '+e.message); }
+};
+
+// --- Galería: últimas fotos de detecciones ---
+async function refreshGallery(){
+    try{
+        const res = await fetch('/api/v1/detections',{headers:{'Accept':'application/json'}});
+        const json = await res.json();
+        const dets = (json.data||[]).filter(d=>d.snapshot_path).slice(0,8);
+        gallery.innerHTML='';
+        dets.forEach(d=>{
+            const url = '/storage/'+String(d.snapshot_path).replace(/^\/+/,'');
+            const a = document.createElement('a');
+            a.href=url; a.target='_blank';
+            a.innerHTML = '<img src="'+url+'" class="w-full h-28 object-cover rounded border" loading="lazy"><p class="text-[11px] text-gray-500 truncate">'+d.event_type+' · '+Math.round((d.confidence||0)*100)+'%</p>';
+            gallery.appendChild(a);
+        });
+        if (!dets.length) gallery.innerHTML='<p class="text-sm text-gray-400 col-span-4">Sin fotos aún. Python sube aquí cada cruce de perímetro.</p>';
+        // Si el modal está abierto y hay foto nueva, mostrarla
+        const first = dets[0];
+        if (first && !modal.classList.contains('hidden')){
+            modalImg.src='/storage/'+String(first.snapshot_path).replace(/^\/+/,'');
+            modalImg.classList.remove('hidden');
+        }
+    }catch(e){}
+}
+
+loadCameras().then(()=>{ refreshGallery(); });
+setInterval(pollAlerts, 3000);
+setInterval(refreshGallery, 15000);
 </script>
 </x-app-layout>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCameraRequest;
+use App\Http\Requests\UpdateCameraRequest;
 use App\Http\Resources\CameraResource;
 use App\Repositories\CameraRepository;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -30,6 +31,15 @@ class CameraController extends Controller
         abort_if(! $camera, 404);
 
         return new CameraResource($camera);
+    }
+
+    public function update(UpdateCameraRequest $request, int $id): CameraResource
+    {
+        $camera = $this->cameras->find($id);
+        abort_if(! $camera, 404);
+        $this->cameras->update($camera, $request->validated());
+
+        return new CameraResource($camera->fresh());
     }
 
     public function destroy(int $id): \Illuminate\Http\JsonResponse

@@ -1,0 +1,8 @@
+# Detector YOLO (PC) — ESP32-CAM + API Laravel + Blynk
+ultralytics>=8.2
+opencv-python>=4.8
+requests>=2.31
+python-dotenv>=1.0
+# (Sin blynklib: el latido Online usa solo la librería estándar de Python.)
+# numpy viene con ultralytics/torch. En Apple Silicon se recomienda
+# instalar antes PyTorch desde https://pytorch.org (MPS).

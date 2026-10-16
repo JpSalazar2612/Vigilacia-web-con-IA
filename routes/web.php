@@ -11,8 +11,8 @@ Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
-Route::get('/monitoreo', function () {
-    return view('monitoreo');
+Route::get('/monitoreo/{camera?}', function (?string $camera = null) {
+    return view('monitoreo', ['cameraId' => $camera]);
 })->middleware(['auth', 'verified'])->name('monitoreo');
 
 Route::middleware('auth')->group(function () {

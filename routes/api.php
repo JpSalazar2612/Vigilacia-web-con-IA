@@ -20,6 +20,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::post('cameras', [CameraController::class, 'store']);
+        Route::match(['put', 'patch'], 'cameras/{camera}', [CameraController::class, 'update']);
         Route::delete('cameras/{camera}', [CameraController::class, 'destroy']);
         Route::post('detections', [DetectionController::class, 'store']);
         Route::post('evidencias', [EvidenciaController::class, 'store']);

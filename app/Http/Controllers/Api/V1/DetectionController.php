@@ -25,6 +25,12 @@ class DetectionController extends Controller
 
     public function store(StoreDetectionRequest $request): JsonResponse
     {
+        // La alerta dispara llamadas HTTP a Blynk: margen propio para que el
+        // límite global del php.ini nunca mate este request a la mitad.
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(60);
+        }
+
         // Delgado: valida arriba, toda la IA vive en DetectionService
         $validated = $request->validated();
         $detection = $this->service->ingest($validated);
