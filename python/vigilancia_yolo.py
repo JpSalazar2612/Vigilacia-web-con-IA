@@ -227,62 +227,31 @@ def esperar_proxy(port: str, segundos: int = 20) -> bool:
 
 
 def _latido_blynk():
-    """Hilo fondo: sesión Blynk (protocolo hardware, stdlib) para el estado Online.
+    """Hilo fondo: latido Online por HTTP API (NO sesión hardware).
 
-    El ESP32-CAM no puede abrirla (toda su RAM se va en cámara+WiFi), así que la
-    abre el PC. Usa puerto 80 PLANO (sin TLS): el TLS :443 se cuelga en redes
-    compartidas/ICS. Si falla algo, reintenta en silencio: Laravel ya actualiza
-    V0/V1/V2/V3 por HTTP API y eso no depende de esto.
+    Por qué no hay sesión hardware: Blynk IoT solo acepta hardware por TLS
+    :443 y en esta red el TLS a 64.225.16.22 (blynk.cloud/ny3) se cuelga en
+    el ClientHello (probado: HTTP :80 responde al instante, TLS nunca).
+    Los puertos 80/8080 son solo API HTTP y cierran el binario hardware.
+    Sin socket hardware, `isHardwareConnected` siempre será false y la app
+    mostrará "offline": es cosmético. Lo que SÍ funciona por HTTP y mantiene
+    útil el sistema: V0/V1/V2/V3, evento intruso_casa y lectura de V4.
+    Este latido refresca V3=1 cada 60s para que el LED "sistema activo"
+    de la app quede encendido aunque el badge nativo diga offline.
     """
-    import socket
-    import struct
-
-    def recvn(s, n):
-        buf = b''
-        while len(buf) < n:
-            chunk = s.recv(n - len(buf))
-            if not chunk:
-                raise ConnectionError('cerrada por el servidor')
-            buf += chunk
-        return buf
-
-    def send(s, mtype, body=b'', mid=1):
-        if isinstance(body, str):
-            body = body.encode()
-        s.sendall(struct.pack('>BHH', mtype, mid, len(body)) + body)
-
-    mid = 0
+    intervalo = float(os.getenv("BLYNK_HEARTBEAT_SEG", "60") or 60)
+    print(f"[blynk] sin sesión hardware (TLS bloqueado a {BLYNK_SERVER}). "
+          f"Latido HTTP V3=1 cada {intervalo:.0f}s; pines y V4 por API siguen OK.")
     while True:
         try:
-            # Puerto 80 plano, sin SSL (ver nota arriba)
-            s = socket.create_connection((BLYNK_SERVER, 80), timeout=10)
-            mid = (mid % 60000) + 1
-            send(s, 2, BLYNK_TOKEN, mid)  # LOGIN
-            s.settimeout(12)
-            mtype, rmid, status = struct.unpack('>BHH', recvn(s, 5))
-            if mtype == 5:  # REDIRECT a servidor regional
-                raise ConnectionError('redirect no soportado aquí, reintento')
-            if not (mtype == 0 and status == 200):
-                raise ConnectionError(f'login rechazado (status={status})')
-            print('[blynk] sesión abierta (puerto 80), Device online.')
-            s.settimeout(25)
-            while True:
-                try:
-                    mtype, rmid, ln = struct.unpack('>BHH', recvn(s, 5))
-                    if ln and mtype != 0:
-                        recvn(s, ln)
-                    if mtype == 6:  # PING del servidor -> respondo
-                        s.sendall(struct.pack('>BHH', 0, rmid, 200))
-                except socket.timeout:
-                    mid = (mid % 60000) + 1
-                    send(s, 6, b'', mid)  # PING propio mantiene viva la sesión
+            requests.get(
+                f"{BLYNK_SCHEME}://{BLYNK_SERVER}/external/api/update",
+                params={"token": BLYNK_TOKEN, "V3": 1},
+                timeout=5,
+            )
         except Exception as exc:
-            print(f'[blynk] sesión no disponible ({exc}). Reintento en 30s; pines por API siguen OK.')
-            try:
-                s.close()
-            except Exception:
-                pass
-            time.sleep(30)
+            print(f"[blynk] latido HTTP falló ({exc}). Reintento en {intervalo:.0f}s.")
+        time.sleep(intervalo)
 
 
 def main() -> None:

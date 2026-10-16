@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AlertController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BlynkController;
 use App\Http\Controllers\Api\V1\CameraController;
 use App\Http\Controllers\Api\V1\DetectionController;
 use App\Http\Controllers\Api\V1\EvidenciaController;
@@ -15,6 +16,7 @@ Route::prefix('v1')->group(function () {
     Route::get('alerts', [AlertController::class, 'index']);
     Route::get('alerts/{alert}', [AlertController::class, 'show']);
     Route::get('detections', [DetectionController::class, 'index']);
+    Route::get('blynk/status', [BlynkController::class, 'status']);
 
     // Protegido (cámaras / operadores con token Sanctum)
     Route::middleware('auth:sanctum')->group(function () {
@@ -26,5 +28,6 @@ Route::prefix('v1')->group(function () {
         Route::post('evidencias', [EvidenciaController::class, 'store']);
         Route::post('alerts/{id}/acknowledge', [AlertController::class, 'acknowledge']);
         Route::delete('alerts/{alert}', [AlertController::class, 'destroy']);
+        Route::post('blynk/arm', [BlynkController::class, 'arm']);
     });
 });

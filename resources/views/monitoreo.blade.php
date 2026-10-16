@@ -24,6 +24,13 @@
                         <button id="btn-reload" class="px-3 py-1 bg-gray-200 rounded text-sm">Recargar stream</button>
                     </div>
                 </div>
+                <div class="flex items-center gap-2 mt-3 text-sm">
+                    <span class="text-gray-600">Alarma:</span>
+                    <span id="arma-estado" class="px-2 py-1 rounded bg-gray-100 text-gray-600">leyendo…</span>
+                    <button id="btn-armar" class="px-3 py-1 bg-green-700 text-white rounded text-sm">Armar</button>
+                    <button id="btn-desarmar" class="px-3 py-1 bg-red-700 text-white rounded text-sm">Desarmar</button>
+                    <span class="text-xs text-gray-400">(vía servidor: funciona aunque Blynk diga "offline". YOLO lo toma en ~10s)</span>
+                </div>
                 <p id="cam-info" class="text-sm text-gray-500 mt-2">Selecciona tu ESP32-CAM…</p>
             </div>
 
@@ -316,8 +323,34 @@ async function refreshGallery(){
     }catch(e){}
 }
 
-loadCameras().then(()=>{ refreshGallery(); });
+loadCameras().then(()=>{ refreshGallery(); refreshArma(); });
 setInterval(pollAlerts, 3000);
 setInterval(refreshGallery, 15000);
+setInterval(refreshArma, 15000);
+
+async function refreshArma(){
+    try{
+        const res = await fetch('/api/v1/blynk/status',{headers:{'Accept':'application/json'}});
+        const j = await res.json();
+        const el = document.getElementById('arma-estado');
+        if (j.armed === true) { el.textContent = 'ARMADA'; el.className = 'px-2 py-1 rounded bg-green-100 text-green-800'; }
+        else if (j.armed === false) { el.textContent = 'DESARMADA'; el.className = 'px-2 py-1 rounded bg-red-100 text-red-800'; }
+        else { el.textContent = 'sin lectura'; el.className = 'px-2 py-1 rounded bg-gray-100 text-gray-600'; }
+    }catch(e){}
+}
+async function setArma(v){
+    if (!apiToken()){ log('Sin token: guarda tu token API para Armar/Desarmar.'); return; }
+    try{
+        const res = await fetch('/api/v1/blynk/arm',{
+            method:'POST',
+            headers:{'Authorization':'Bearer '+apiToken(),'Content-Type':'application/json','Accept':'application/json'},
+            body: JSON.stringify({armed: v})
+        });
+        log(v ? 'Alarma ARMADA (YOLO la toma en ~10s).' : 'Alarma DESARMADA (solo video, sin detección).');
+        refreshArma();
+    }catch(e){ log('Error armando: '+e.message); }
+}
+document.getElementById('btn-armar').onclick = () => setArma(true);
+document.getElementById('btn-desarmar').onclick = () => setArma(false);
 </script>
 </x-app-layout>

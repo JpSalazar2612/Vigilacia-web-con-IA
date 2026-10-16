@@ -202,6 +202,45 @@ class BlynkService
         $this->logEvent((string) config('services.blynk.event_code', 'intruso_casa'), $message);
     }
 
+    /** Lee el switch Armar/Desarmar (V4: 1 armada, 0 desarmada). Null si falla. */
+    public function getArmed(): ?bool
+    {
+        if (! $this->enabled()) {
+            return null;
+        }
+
+        try {
+            $pin = (string) config('services.blynk.pin_arma', 'V4');
+            // Formato exacto Blynk: /external/api/get?token=XXX&V4 (pin sin valor)
+            $res = Http::timeout(3)->get($this->base().'/get?token='.urlencode($this->token()).'&'.urlencode($pin));
+
+            // Blynk responde '["1"]' / '["0"]' o '1' / '0'
+            $txt = trim((string) $res->body(), " \t\n\r[\"\']");
+            if (str_starts_with($txt, '1')) {
+                return true;
+            }
+            if (str_starts_with($txt, '0')) {
+                return false;
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::warning('Blynk getArmed excepción: '.$e->getMessage());
+
+            return null;
+        }
+    }
+
+    /** Escribe el switch Armar/Desarmar (V4). Lo lee Python cada ~10s. */
+    public function setArmed(bool $armed): bool
+    {
+        if (! $this->enabled()) {
+            return false;
+        }
+
+        return $this->updatePin((string) config('services.blynk.pin_arma', 'V4'), $armed ? 1 : 0);
+    }
+
     /** Marca cámara online/offline en V3 (widget LED). Devuelve si Blynk lo aceptó. */
     public function pushOnline(bool $online): bool
     {

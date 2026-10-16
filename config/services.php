@@ -57,6 +57,7 @@ return [
         'pin_presencia' => env('BLYNK_PIN_PRESENCIA', 'V1'),
         'pin_foto' => env('BLYNK_PIN_FOTO', 'V2'),
         'pin_online' => env('BLYNK_PIN_ONLINE', 'V3'),
+        'pin_arma' => env('BLYNK_PIN_ARMA', 'V4'),
         'event_code' => env('BLYNK_EVENT_CODE', 'intruso_casa'),
         'enabled' => env('BLYNK_ENABLED', false),
     ],
